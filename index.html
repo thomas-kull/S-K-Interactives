@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EOQ Interactive Tool — Fixed Axes, Dynamic Curves</title>
+  <style>
+    :root {
+      --bg: #0f172a; /* slate-900 */
+      --panel: #111827; /* gray-900 */
+      --ink: #e5e7eb; /* gray-200 */
+      --muted: #94a3b8; /* slate-400 */
+      --accent: #22d3ee; /* cyan-400 */
+      --accent-2: #a78bfa; /* violet-400 */
+      --ok: #34d399; /* green-400 */
+      --bad: #f87171; /* red-400 */
+      --warn: #f59e0b; /* amber-500 */
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: ui-sans-serif, system-ui, Segoe UI, Roboto, Helvetica, Arial, Apple Color Emoji, Segoe UI Emoji; background: linear-gradient(180deg, #0b1223, var(--bg)); color: var(--ink); }
+    .wrap { max-width: 1100px; margin: 24px auto; padding: 20px; }
+    .card { background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02)); border: 1px solid rgba(255,255,255,0.06); border-radius: 16px; box-shadow: 0 8px 30px rgba(0,0,0,0.35); overflow: hidden; }
+    header { padding: 18px 22px; border-bottom: 1px solid rgba(255,255,255,0.06); display:flex; gap:16px; align-items:center; justify-content: space-between; }
+    header .title { font-weight: 700; letter-spacing: .2px; font-size: clamp(18px, 2vw, 24px); }
+    header .subtitle { color: var(--muted); font-size: 13px; }
+    .grid { display: grid; grid-template-columns: 360px 1fr; gap: 12px; }
+    @media (max-width: 920px){ .grid{ grid-template-columns: 1fr; } }
+    .panel { padding: 16px; }
+    .controls { display: grid; gap: 14px; }
+    .control { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 12px 12px 10px; }
+    .row { display:flex; align-items:center; justify-content: space-between; gap: 10px; }
+    .row label { font-weight: 600; }
+    .row output { min-width: 90px; text-align: right; color: var(--accent); font-variant-numeric: tabular-nums; }
+    input[type="range"] { width: 100%; accent-color: var(--accent-2); }
+    .btns { display:flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+    button { cursor: pointer; background: linear-gradient(90deg, var(--accent), var(--accent-2)); color: #0b0f19; font-weight: 700; border: none; border-radius: 999px; padding: 10px 14px; box-shadow: 0 4px 16px rgba(34,211,238,.25); transition: transform .06s ease; }
+    button.secondary { background: transparent; color: var(--ink); border: 1px solid rgba(255,255,255,0.16); box-shadow: none; }
+    button:active { transform: translateY(1px) scale(.99); }
+    #plot { height: 560px; }
+    footer { padding: 12px 16px; border-top: 1px solid rgba(255,255,255,0.06); color: var(--muted); font-size: 12px; display:flex; align-items:center; justify-content: space-between; flex-wrap: wrap; gap:8px; }
+    code.inline { background: rgba(255,255,255,0.06); padding: 2px 6px; border-radius: 6px; }
+    .banner { display:none; padding: 10px 12px; border-top: 1px solid rgba(255,255,255,0.06); background: rgba(245, 158, 11, 0.12); color: #fde68a; font-size: 13px; }
+    .banner.error { background: rgba(248, 113, 113, 0.12); color: #fecaca; }
+    .tests { margin-top: 12px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 12px; }
+    .test-row { display:flex; align-items:center; justify-content: space-between; padding: 6px 0; border-bottom: 1px dashed rgba(255,255,255,0.06); }
+    .test-row:last-child { border-bottom: none; }
+    .badge { font-size: 12px; border-radius: 999px; padding: 2px 8px; font-weight: 700; letter-spacing: .3px; }
+    .pass { background: rgba(52, 211, 153, .2); color: var(--ok); border: 1px solid rgba(52, 211, 153, .4); }
+    .fail { background: rgba(248, 113, 113, .2); color: var(--bad); border: 1px solid rgba(248, 113, 113, .4); }
+    details summary { cursor: pointer; color: var(--muted); }
+    .kpis { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; margin-top: 10px; }
+    .kpi { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 10px; }
+    .kpi .label { color: var(--muted); font-size: 12px; }
+    .kpi .value { font-weight: 700; font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <header>
+        <div>
+          <div class="title">EOQ (Economic Order Quantity) Interactive</div>
+          <div class="subtitle">Axes stay fixed while curves morph. Adjust D, S, H to see costs change. Use “Fit axes” to reframe.</div>
+        </div>
+        <div class="btns">
+          <button id="shareBtn" title="Copy a link with current slider values">Copy share link</button>
+          <button id="fitBtn" class="secondary" title="Fit axes to current parameters">Fit axes</button>
+          <button id="resetBtn" class="secondary" title="Reset sliders to defaults">Reset</button>
+          <button id="testBtn" class="secondary" title="Run built‑in tests">Run self‑test</button>
+        </div>
+      </header>
+      <div id="diag" class="banner" role="status" aria-live="polite"></div>
+
+      <div class="grid">
+        <!-- Controls -->
+        <section class="panel">
+          <div class="controls" id="controls">
+            <!-- EOQ inputs: D, S, H -->
+            <div class="control" data-key="D">
+              <div class="row"><label for="D">Annual demand D (units/yr)</label><output id="D_val"></output></div>
+              <input id="D" type="range" min="100" max="100000" value="12000" step="100" />
+            </div>
+            <div class="control" data-key="S">
+              <div class="row"><label for="S">Order/setup cost S ($/order)</label><output id="S_val"></output></div>
+              <input id="S" type="range" min="1" max="2000" value="400" step="1" />
+            </div>
+            <div class="control" data-key="H">
+              <div class="row"><label for="H">Holding cost H ($/unit/yr)</label><output id="H_val"></output></div>
+              <input id="H" type="range" min="0.10" max="100" value="6" step="0.10" />
+            </div>
+            <div class="control" data-key="RangeMul">
+              <div class="row"><label for="RangeMul">X‑axis span (× Q*)</label><output id="RangeMul_val"></output></div>
+              <input id="RangeMul" type="range" min="1.5" max="6" value="3.5" step="0.1" />
+            </div>
+
+            <div class="kpis">
+              <div class="kpi"><div class="label">EOQ Q*</div><div class="value" id="kpi_q"></div></div>
+              <div class="kpi"><div class="label">Orders/year at Q*</div><div class="value" id="kpi_n"></div></div>
+              <div class="kpi"><div class="label">Cycle time at Q*</div><div class="value" id="kpi_t"></div></div>
+              <div class="kpi"><div class="label">Min relevant annual cost</div><div class="value" id="kpi_c"></div></div>
+            </div>
+          </div>
+
+          <details class="tests" open>
+            <summary>Built‑in tests (auto‑run)</summary>
+            <div id="tests"></div>
+          </details>
+        </section>
+
+        <!-- Plot -->
+        <section class="panel">
+          <div id="plot"></div>
+        </section>
+      </div>
+
+      <footer>
+        <div>
+          EOQ model (no shortages, instantaneous replenishment): <code class="inline">Q* = √(2DS/H)</code>, total relevant annual cost <code class="inline">TC(Q) = (D/Q)·S + (Q/2)·H</code>.
+        </div>
+        <div>
+          Want variants (backorders, finite production, quantity discounts)? Tell me and I’ll add them.
+        </div>
+      </footer>
+    </div>
+  </div>
+
+  <noscript>
+    <div style="max-width:1100px;margin:12px auto;color:#fecaca;background:rgba(248,113,113,.12);padding:12px;border:1px solid rgba(248,113,113,.4);border-radius:12px;">
+      This page requires JavaScript to run.
+    </div>
+  </noscript>
+
+  <script>
+    // =============== Plotly Loader (robust) ===============
+    function loadPlotly() {
+      if (window.Plotly) return Promise.resolve(window.Plotly);
+      const sources = [
+        "https://cdn.plot.ly/plotly-2.35.2.min.js",
+        "https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.2/plotly.min.js",
+        "https://unpkg.com/plotly.js-dist-min@2.35.2/plotly.min.js",
+        "https://cdn.plot.ly/plotly-latest.min.js",
+        "https://unpkg.com/plotly.js-dist-min/plotly.min.js"
+      ];
+      const diag = document.getElementById('diag');
+      function show(msg, asError=false){
+        diag.style.display = 'block'; diag.className = 'banner' + (asError ? ' error' : ''); diag.textContent = msg;
+      }
+      return new Promise((resolve, reject) => {
+        let idx = 0; const tried = [];
+        const next = () => {
+          if (window.Plotly) { show(`Plotly ready${tried.length ? ` (from ${tried[tried.length-1]})` : ''}.`); return resolve(window.Plotly); }
+          if (idx >= sources.length) { show('Failed to load Plotly from all sources.', true); return reject(new Error('Plotly load failed')); }
+          const url = sources[idx++]; tried.push(url); show(`Loading Plotly… (${url})`);
+          const s = document.createElement('script'); s.src = url; s.async = true; let done = false;
+          const cleanup = () => { s.onload = s.onerror = null; };
+          const timer = setTimeout(() => { if (!done) { s.remove(); next(); } }, 8000);
+          s.onload = () => { done = true; clearTimeout(timer); cleanup(); setTimeout(() => { window.Plotly ? resolve(window.Plotly) : next(); }, 0); };
+          s.onerror = () => { done = true; clearTimeout(timer); cleanup(); next(); };
+          document.head.appendChild(s);
+        };
+        next();
+      });
+    }
+
+    // =============== State & EOQ Model ===============
+    const params = new URLSearchParams(location.search);
+    const keys = ["D","S","H","RangeMul"];
+
+    function getDefaults(){
+      return { D: 12000, S: 400, H: 6, RangeMul: 3.5 };
+    }
+
+    function readState(){
+      const p = getDefaults();
+      keys.forEach(k => { if(params.has(k)) p[k] = Number(params.get(k)); });
+      return p;
+    }
+
+    function serializeState(p){
+      const q = new URLSearchParams();
+      keys.forEach(k => q.set(k, String(p[k])));
+      return q.toString();
+    }
+
+    function writeState(p){
+      history.replaceState(null, "", `${location.pathname}?${serializeState(p)}`);
+    }
+
+    // EOQ formulas
+    function eoq(p){ const {D,S,H} = p; if (D <= 0 || S <= 0 || H <= 0) return 0; return Math.sqrt(2*D*S/H); }
+    function orderingCost(Q,p){ const {D,S} = p; return Q>0 ? (D/Q)*S : Infinity; }
+    function holdingCost(Q,p){ const {H} = p; return (Q/2)*H; }
+    function totalCost(Q,p){ return orderingCost(Q,p) + holdingCost(Q,p); }
+
+    // Utility
+    function linspace(start, end, n){ const arr = new Array(n); const step = (end - start) / (n - 1); for(let i=0;i<n;i++) arr[i] = start + i*step; return arr; }
+    function fmt(n,dec=2){ return Number(n).toLocaleString(undefined,{maximumFractionDigits:dec, minimumFractionDigits:dec}); }
+
+    // =============== Axes + Domain (fixed unless you Fit or change RangeMul) ===============
+    let X = [];
+    let axes = { x:[0,0], y:[0,0] };
+
+    function computeDomainFrom(p){
+      const Qs = eoq(p) || 1; // avoid zero
+      const xMin = Math.max(0.01, 0.05*Qs);
+      const xMax = Math.max(10, p.RangeMul * Qs);
+      return [xMin, xMax];
+    }
+
+    function initAxesAndDomain(){
+      const xr = computeDomainFrom(state);
+      X = linspace(xr[0], xr[1], 600);
+      // y range from total cost on this domain
+      const total = X.map(q => totalCost(q, state));
+      const yMax = Math.max(...total) * 1.10; // headroom
+      axes = { x: xr, y: [0, yMax || 1] };
+    }
+
+    function reframeAxesAndDomain(){
+      const xr = computeDomainFrom(state);
+      X = linspace(xr[0], xr[1], 600);
+      const total = X.map(q => totalCost(q, state));
+      const yMax = Math.max(...total) * 1.10;
+      axes = { x: xr, y: [0, yMax || 1] };
+      // Update axes ranges and X for traces (x changes)
+      if (!window.Plotly) return;
+      const gd = document.getElementById('plot');
+      // Update x for first 3 traces
+      window.Plotly.restyle(gd, { x: [X] }, [0]);
+      window.Plotly.restyle(gd, { x: [X] }, [1]);
+      window.Plotly.restyle(gd, { x: [X] }, [2]);
+      // Update min-cost line x
+      window.Plotly.restyle(gd, { x: [[X[0], X[X.length-1]]] }, [4]);
+      // Update axes ranges
+      window.Plotly.relayout(gd, { 'xaxis.autorange': false, 'yaxis.autorange': false, 'xaxis.range': axes.x, 'yaxis.range': axes.y });
+      updateCurvesOnly();
+    }
+
+    // =============== UI Init ===============
+    const state = readState();
+    const outputs = {};
+
+    function syncSlidersFromState(){
+      keys.forEach(k => {
+        const el = document.getElementById(k);
+        const out = document.getElementById(k + "_val");
+        if(el && out){ el.value = state[k]; out.textContent = (k==='RangeMul'? state[k].toFixed(2) : fmt(state[k])); outputs[k] = out; }
+      });
+      updateKPIs();
+    }
+
+    function attachHandlers(){
+      // D, S, H: update curves only (axes frozen)
+      ['D','S','H'].forEach(k => {
+        const el = document.getElementById(k);
+        el.addEventListener('input', () => {
+          state[k] = Number(el.value);
+          outputs[k].textContent = fmt(state[k]);
+          writeState(state);
+          updateKPIs();
+          updateCurvesOnly();
+        });
+      });
+
+      // RangeMul: only changes axis span when you click Fit, but we'll allow live reframing too.
+      document.getElementById('RangeMul').addEventListener('input', () => {
+        state.RangeMul = Number(document.getElementById('RangeMul').value);
+        outputs['RangeMul'].textContent = state.RangeMul.toFixed(2);
+        writeState(state);
+        reframeAxesAndDomain();
+      });
+
+      document.getElementById('fitBtn').addEventListener('click', reframeAxesAndDomain);
+
+      document.getElementById('resetBtn').addEventListener('click', () => {
+        const d = getDefaults(); keys.forEach(k => state[k] = d[k]);
+        syncSlidersFromState(); writeState(state);
+        initAxesAndDomain();
+        draw(true);
+      });
+
+      document.getElementById('shareBtn').addEventListener('click', async () => {
+        const url = location.href; try { await navigator.clipboard.writeText(url); flash("Link copied ✔"); } catch(e){ prompt("Copy this link:", url); }
+      });
+
+      document.getElementById('testBtn').addEventListener('click', runTests);
+    }
+
+    function updateKPIs(){
+      const Q = eoq(state);
+      const nY = Q>0 ? state.D / Q : 0;
+      const T = Q>0 ? Q / state.D : 0; // years per cycle
+      const Cmin = totalCost(Q, state);
+      document.getElementById('kpi_q').textContent = fmt(Q,2) + ' units';
+      document.getElementById('kpi_n').textContent = fmt(nY,2) + ' /yr';
+      document.getElementById('kpi_t').textContent = fmt(T*365,2) + ' days/cycle';
+      document.getElementById('kpi_c').textContent = '$ ' + fmt(Cmin,2) + ' /yr';
+    }
+
+    function flash(msg){ const b = document.getElementById("shareBtn"); const old = b.textContent; b.textContent = msg; setTimeout(() => b.textContent = old, 1200); }
+
+    // =============== Plot rendering (fixed axes) ===============
+    function traces(p){
+      const order = X.map(q => orderingCost(q,p));
+      const hold  = X.map(q => holdingCost(q,p));
+      const total = order.map((v,i) => v + hold[i]);
+      const Qs = eoq(p);
+      const Cstar = totalCost(Qs,p);
+      return [
+        { x: X, y: order, mode: 'lines', name: 'Ordering cost (D/Q·S)', line: { width: 2 } },
+        { x: X, y: hold,  mode: 'lines', name: 'Holding cost (Q/2·H)', line: { width: 2 } },
+        { x: X, y: total, mode: 'lines', name: 'Total cost', line: { width: 3 } },
+        { x: [Qs, Qs], y: [axes.y[0], Math.min(Cstar, axes.y[1])], mode: 'lines', name: 'EOQ Q*', line: { dash: 'dash', width: 2 } },
+        { x: [X[0], X[X.length-1]], y: [Cstar, Cstar], mode: 'lines', name: 'Min cost', line: { dash: 'dot', width: 1 } }
+      ];
+    }
+
+    function layout(p){
+      const Qs = eoq(p); const Cstar = totalCost(Qs,p);
+      return {
+        uirevision: 'freeze',
+        paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
+        margin: { l: 60, r: 20, t: 30, b: 60 },
+        xaxis: { title: "Order quantity Q (units)", gridcolor: "rgba(255,255,255,0.08)", zerolinecolor: "rgba(255,255,255,0.25)", autorange:false, range: axes.x },
+        yaxis: { title: "Annual cost ($/yr)", gridcolor: "rgba(255,255,255,0.08)", zerolinecolor: "rgba(255,255,255,0.25)", autorange:false, range: axes.y },
+        legend: { orientation: 'h', y: -0.2 },
+        annotations: [
+          { x: Qs, y: Math.min(Cstar, axes.y[1]), xref: 'x', yref: 'y', text: `Q*=${fmt(Qs,2)}`, showarrow: true, arrowhead: 2, ax: 30, ay: -40, visible: (Qs>=axes.x[0] && Qs<=axes.x[1]) }
+        ]
+      };
+    }
+
+    function draw(initial=false){
+      if (!window.Plotly) return;
+      const gd = document.getElementById('plot');
+      const tr = traces(state);
+      const lay = layout(state);
+      const cfg = { displaylogo:false, responsive:true };
+      if(!draw.hasPlotted){ window.Plotly.newPlot(gd, tr, lay, cfg); draw.hasPlotted = true; }
+      else if (!initial){ window.Plotly.react(gd, tr, lay, cfg); }
+    }
+
+    function updateCurvesOnly(){
+      if (!window.Plotly) return;
+      const gd = document.getElementById('plot');
+      const order = X.map(q => orderingCost(q,state));
+      const hold  = X.map(q => holdingCost(q,state));
+      const total = order.map((v,i)=>v+hold[i]);
+      const Qs = eoq(state); const Cstar = totalCost(Qs, state);
+      // Update the three cost curves
+      window.Plotly.restyle(gd, { y: [order] }, [0]);
+      window.Plotly.restyle(gd, { y: [hold]  }, [1]);
+      window.Plotly.restyle(gd, { y: [total] }, [2]);
+      // Update EOQ marker and min-cost line
+      window.Plotly.restyle(gd, { x: [[Qs, Qs]], y: [[axes.y[0], Math.min(Cstar, axes.y[1])]] }, [3]);
+      window.Plotly.restyle(gd, { y: [[Cstar, Cstar]] }, [4]);
+      // Move annotation without changing ranges
+      window.Plotly.relayout(gd, {
+        'annotations[0].x': Qs,
+        'annotations[0].y': Math.min(Cstar, axes.y[1]),
+        'annotations[0].visible': (Qs>=axes.x[0] && Qs<=axes.x[1])
+      });
+      checkView(total, Cstar);
+    }
+
+    function checkView(total, Cstar){
+      const maxY = Math.max(...total);
+      const diag = document.getElementById('diag');
+      if (maxY > axes.y[1]*0.98) {
+        diag.style.display='block'; diag.className='banner'; diag.textContent='Tip: curves exceed the view — click “Fit axes” or increase X‑axis span.';
+      } else if (maxY < axes.y[1]*0.15) {
+        diag.style.display='block'; diag.className='banner'; diag.textContent='Tip: curves are tiny — click “Fit axes” for a tighter view.';
+      } else {
+        diag.style.display='none';
+      }
+    }
+
+    // =============== Tests (auto‑run) ===============
+    function approxEqual(a,b,eps=1e-6){ return Math.abs(a-b) <= eps; }
+
+    function renderTestRow(name, passed, detail){
+      const row = document.createElement('div'); row.className = 'test-row';
+      const left = document.createElement('div'); left.textContent = name;
+      const right = document.createElement('div'); right.className = 'badge ' + (passed?'pass':'fail'); right.textContent = passed? 'PASS' : 'FAIL';
+      row.appendChild(left); row.appendChild(right);
+      if (detail){ const d = document.createElement('div'); d.style.color = 'var(--muted)'; d.style.fontSize = '12px'; d.textContent = detail; d.style.flexBasis = '100%'; d.style.marginTop = '4px'; row.appendChild(d); }
+      return row;
+    }
+
+    function buildDomain(p){ // used only for tests
+      const Qs = eoq(p) || 1; const xMin = Math.max(0.01, 0.05*Qs); const xMax = Math.max(10, p.RangeMul * Qs); return linspace(xMin, xMax, 600);
+    }
+
+    function runTests(){
+      const container = document.getElementById('tests'); container.innerHTML = '';
+
+      // Test 1: EOQ formula numeric check
+      (function(){
+        const p = {D:12000,S:400,H:6,RangeMul:3};
+        const q = eoq(p); const expected = Math.sqrt(2*p.D*p.S/p.H);
+        const pass = approxEqual(q, expected, 1e-9);
+        container.appendChild(renderTestRow('EOQ formula Q* = √(2DS/H)', pass, `Q*=${q.toFixed(6)} expected=${expected.toFixed(6)}`));
+      })();
+
+      // Test 2: At EOQ, ordering cost equals holding cost
+      (function(){
+        const p = {D:5000,S:250,H:5,RangeMul:3};
+        const q = eoq(p);
+        const pass = approxEqual(orderingCost(q,p), holdingCost(q,p), 1e-6);
+        container.appendChild(renderTestRow('Cost balance at Q* (D/Q·S = Q/2·H)', pass, `Ord=${orderingCost(q,p).toFixed(4)} Hold=${holdingCost(q,p).toFixed(4)}`));
+      })();
+
+      // Test 3: Q* is (local) minimizer of TC(Q)
+      (function(){
+        const p = {D:20000,S:100,H:8,RangeMul:3};
+        const q = eoq(p);
+        const eps = 1e-3*q;
+        const c0 = totalCost(q,p);
+        const cL = totalCost(q - eps, p);
+        const cR = totalCost(q + eps, p);
+        const pass = (c0 <= cL) && (c0 <= cR);
+        container.appendChild(renderTestRow('Q* yields minimum total cost (numerical)', pass, `C*=${c0.toFixed(6)} left=${cL.toFixed(6)} right=${cR.toFixed(6)}`));
+      })();
+
+      // Test 4: URL state round‑trip preserves parameters
+      (function(){
+        const p = {D:15000,S:300,H:7.5,RangeMul:4};
+        const q = serializeState(p); const back = new URLSearchParams(q);
+        const pass = keys.every(k => Number(back.get(k)) === p[k]);
+        container.appendChild(renderTestRow('URL state round‑trip', pass, q));
+      })();
+
+      // Test 5: Plotly availability
+      (function(){ const pass = !!window.Plotly; container.appendChild(renderTestRow('Plotly is available', pass, pass? 'OK' : 'Not loaded — check banner above.')); })();
+
+      // Test 6: Domain includes Q* (using helper domain function)
+      (function(){
+        const p = {D:12000,S:400,H:6,RangeMul:2};
+        const X = buildDomain(p); const q = eoq(p);
+        const pass = q >= X[0] && q <= X[X.length-1];
+        container.appendChild(renderTestRow('Domain contains EOQ Q*', pass, `Q*=${q.toFixed(3)} in [${X[0].toFixed(3)}, ${X[X.length-1].toFixed(3)}]`));
+      })();
+    }
+
+    // =============== Kickoff ===============
+    window.addEventListener("DOMContentLoaded", () => {
+      syncSlidersFromState(); attachHandlers(); writeState(state);
+      initAxesAndDomain();
+      loadPlotly().then(() => { draw(true); runTests(); }).catch(() => { runTests(); });
+    });
+  </script>
+</body>
+</html>
